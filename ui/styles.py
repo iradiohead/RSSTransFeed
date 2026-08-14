@@ -4,46 +4,50 @@ from tkinter import ttk
 
 
 class Theme:
-    """Dark theme colors for RSS Reader"""
+    """定义整个应用的深色视觉主题。
+
+    这里集中存放颜色常量，用于统一窗口背景、文字颜色、按钮样式和高亮状态，
+    保证界面风格一致。
+    """
     
-    # Colors
-    BG_PRIMARY = "#0f1115"
-    BG_SECONDARY = "#11151b"
-    BG_SIDEBAR = "#171b22"
-    BG_SPLIT = "#151922"
-    BG_SPLITTER = "#2a2e37"
-    BG_LISTBOX = "#1b1f27"
-    BG_ARTICLE = "#121821"
-    BG_FOOTER = "#0f1115"
-    
-    # Text colors
-    FG_PRIMARY = "#edf1f7"
-    FG_SECONDARY = "#e7e8ea"
-    FG_MUTED = "#8a939f"
-    FG_SELECTED = "#3ad17f"
-    FG_SELECTED_MUTED = "#2fbf6f"
-    
+    # Colors - Dark blue-gray theme (照搬参考图配色)
+    BG_PRIMARY = "#151C23"
+    BG_SECONDARY = "#171D24"
+    BG_SIDEBAR = "#151C23"
+    BG_SPLIT = "#151C23"
+    BG_SPLITTER = "#2D343B"
+    BG_LISTBOX = "#171D24"
+    BG_ARTICLE = "#151C23"
+    BG_FOOTER = "#151C23"
+
+    # Text colors - Grayish white (not pure white)
+    FG_PRIMARY = "#C1C7CE"
+    FG_SECONDARY = "#B5BBC2"
+    FG_MUTED = "#8E949C"
+    FG_SELECTED = "#2D75E5"
+    FG_SELECTED_MUTED = "#8E949C"
+
     # Button colors
-    BTN_BG = "#1f242c"
-    BTN_BG_ACTIVE = "#2a3038"
-    BTN_BG_PRESSED = "#1b2128"
-    BTN_FG = "#e7e8ea"
-    BTN_FG_ACTIVE = "#ffffff"
-    
+    BTN_BG = "#1A2027"
+    BTN_BG_ACTIVE = "#2D343B"
+    BTN_BG_PRESSED = "#151C23"
+    BTN_FG = "#C1C7CE"
+    BTN_FG_ACTIVE = "#FFFFFF"
+
     # Input colors
-    INPUT_BG = "#1d2128"
-    INPUT_FG = "#e7e8ea"
-    
+    INPUT_BG = "#171D24"
+    INPUT_FG = "#C1C7CE"
+
     # Selection colors
-    SELECT_BG = "#2d4d75"
-    SELECT_FG = "#ffffff"
+    SELECT_BG = "#2D75E5"
+    SELECT_FG = "#FFFFFF"
 
 
 def configure_styles() -> ttk.Style:
-    """Configure ttk styles with dark theme
-    
-    Returns:
-        Configured ttk.Style object
+    """初始化 ttk 主题样式，返回一个已配置的 Style 对象。
+
+    这个函数会设置窗口、按钮、输入框和标签的统一视觉风格，确保整个应用
+    使用同一套深色 UI 设计。
     """
     style = ttk.Style()
     

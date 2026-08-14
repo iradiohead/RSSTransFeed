@@ -17,7 +17,11 @@ from ui.app import RSSReaderApp
 
 
 def main():
-    """Main entry point"""
+    """启动主窗口并进入 Tkinter 事件循环。
+
+    这是程序的入口函数。它创建应用主窗口，实例化 RSS 阅读器界面，
+    然后让 Tkinter 持续监听用户事件，直到窗口关闭。
+    """
     root = tk.Tk()
     app = RSSReaderApp(root)
     root.mainloop()

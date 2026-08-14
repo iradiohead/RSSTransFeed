@@ -4,16 +4,25 @@ from tkinter import ttk, messagebox
 
 
 class AddSubscriptionDialog:
-    """Dialog for adding a new subscription"""
+    """用于新增订阅的弹窗。
+
+    这个对话框让用户输入 RSS 地址，并在确认后把地址交给回调函数处理。
+    """
     
     def __init__(self, parent, on_add_callback=None):
+        """初始化订阅添加窗口。
+
+        Args:
+            parent: 父窗口，用于挂载对话框。
+            on_add_callback: 用户确认时调用的回调函数，通常负责校验和保存订阅。
+        """
         self.parent = parent
         self.on_add_callback = on_add_callback
         self.result = None
         self.create_dialog()
     
     def create_dialog(self):
-        """Create the dialog window"""
+        """构造弹窗界面，并绑定添加/取消逻辑。"""
         dialog = tk.Toplevel(self.parent)
         dialog.title("添加订阅")
         dialog.geometry("400x150")
@@ -37,6 +46,7 @@ class AddSubscriptionDialog:
         button_frame.pack(pady=10)
         
         def handle_add():
+            """处理用户点击“添加”的事件。"""
             url = url_entry.get().strip()
             if not url:
                 messagebox.showerror("错误", "请输入 RSS 地址")
@@ -54,11 +64,11 @@ class AddSubscriptionDialog:
 
 
 class AboutDialog:
-    """Show about information"""
+    """显示软件介绍窗口。"""
     
     @staticmethod
     def show(parent):
-        """Show the about dialog"""
+        """弹出关于窗口，展示应用名称和基础说明。"""
         messagebox.showinfo(
             "关于 RSSTransFeed",
             "RSSTransFeed Desktop Application\n\n"
