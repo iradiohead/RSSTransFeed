@@ -26,6 +26,59 @@ class TranslationServiceTest(unittest.TestCase):
                 result = TranslationService.translate_article('中文标题', '中文正文内容')
         self.assertIsNone(result)
 
+    def test_translate_blocks_preserves_order_and_batches(self):
+        texts = ['first block', 'second block', 'third block']
+        calls = []
+
+        class FakeTranslator:
+            def __init__(self, source=None, target=None):
+                self.target = target
+
+            def translate(self, text):
+                calls.append(text)
+                # 模拟翻译:保留分隔符,块内容加前缀
+                return '@@@'.join(f"[{self.target}]{p.strip()}" for p in text.split('@@@'))
+
+        with patch('deep_translator.GoogleTranslator', FakeTranslator):
+            result = TranslationService.translate_blocks(texts, 'zh-CN')
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result, ['[zh-CN]first block', '[zh-CN]second block', '[zh-CN]third block'])
+        self.assertEqual(len(calls), 1, "短文本应合并为一次请求")
+
+    def test_translate_blocks_returns_none_when_separator_lost(self):
+        class FakeTranslator:
+            def __init__(self, source=None, target=None):
+                pass
+
+            def translate(self, text):
+                return '翻译后分隔符不见了'
+
+        with patch('deep_translator.GoogleTranslator', FakeTranslator):
+            result = TranslationService.translate_blocks(['a', 'b'], 'zh-CN')
+
+        self.assertIsNone(result, "分隔符丢失时应返回 None 触发回退")
+
+    def test_translate_blocks_skips_empty_blocks(self):
+        class FakeTranslator:
+            def __init__(self, source=None, target=None):
+                pass
+
+            def translate(self, text):
+                return 'X@@@Y'
+
+        with patch('deep_translator.GoogleTranslator', FakeTranslator):
+            result = TranslationService.translate_blocks(['a', '', 'b'], 'zh-CN')
+
+        self.assertEqual(result, ['X', '', 'Y'])
+
+    def test_needs_translation(self):
+        with patch('services.translation_service.locale.getdefaultlocale', return_value=('zh_CN', 'UTF-8')):
+            with patch('langdetect.detect', return_value='en'):
+                self.assertTrue(TranslationService.needs_translation('English text'))
+            with patch('langdetect.detect', return_value='zh-cn'):
+                self.assertFalse(TranslationService.needs_translation('中文文本'))
+
     def test_translate_article_chunks_long_content(self):
         with patch('services.translation_service.locale.getdefaultlocale', return_value=('zh_CN', 'UTF-8')):
             with patch('langdetect.detect', return_value='en'):

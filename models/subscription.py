@@ -90,6 +90,20 @@ class Article:
         # 译文缓存(会话内有效,不持久化);非空表示已翻译
         self.translated_title = ""
         self.translated_content = ""
+        # 块级译文:与 blocks 中的文本块对齐,保证图片位置不变;None 表示整文翻译模式
+        self.translated_block_texts = None
+        # 图文渲染缓存(会话内有效,不持久化):
+        # blocks: 按文档顺序的正文块(段落/图片);extra_image_urls: feed 长文时追加文末的图片;
+        # photos: {图片URL: PhotoImage},None 表示尚未下载
+        self.blocks = []
+        self.extra_image_urls = []
+        self.photos = None
+        # 原始 PIL 图片缓存(URL -> PIL.Image),用于按窗口宽度自适应缩放
+        self.pil_images = {}
+        # 正文提取算法产出的干净正文 HTML(会话内有效)
+        self.clean_html = ""
+        # 网页全文抓取是否失败过(失败时详情页显示摘要提示,下次选中会重试)
+        self.full_text_failed = False
     
     def to_dict(self):
         """把文章对象转换成字典，便于保存到 JSON 或传递给其它模块。

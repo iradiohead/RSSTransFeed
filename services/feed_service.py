@@ -3,7 +3,7 @@ import feedparser
 from typing import List
 
 from models.subscription import Article
-from utils.html_utils import extract_article_text, fetch_article_html, strip_html
+from utils.html_utils import extract_article_blocks, extract_article_text, fetch_article_html, strip_html
 
 
 class FeedService:
@@ -74,6 +74,34 @@ class FeedService:
         if not html:
             return ""
         return extract_article_text(html, url)
+
+    @staticmethod
+    def fetch_full_content(url: str):
+        """抓取文章原网页,返回 (纯文本, 正文块, 元数据)。
+
+        使用正文提取算法(Content Extraction / Boilerplate Removal)过滤
+        导航栏、推荐、广告、评论、分享按钮、页脚等噪音内容。
+
+        Args:
+            url: 文章原始 URL。
+
+        Returns:
+            (纯文本, 块列表, 元数据字典);请求失败时返回 ("", [], {})。
+            元数据包含 title/author/date/html(清理后的正文 HTML)。
+        """
+        from utils.content_extractor import extract_article_content
+
+        html = fetch_article_html(url)
+        if not html:
+            return "", [], {}
+        result = extract_article_content(html, url)
+        return result["text"], result["blocks"], {
+            "title": result["title"],
+            "author": result["author"],
+            "date": result["date"],
+            "html": result["html"],
+            "image": result["image"],
+        }
 
     @staticmethod
     def parse_articles(feed: dict, feed_title: str = "") -> List[Article]:

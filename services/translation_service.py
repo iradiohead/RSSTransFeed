@@ -5,6 +5,10 @@ import os
 # Google 网页翻译单次请求的文本长度上限附近,留出余量
 CHUNK_SIZE = 4500
 
+# 块级翻译的批量上限与分隔符(翻译后按分隔符切回独立块)
+BLOCK_BATCH_SIZE = 4000
+BLOCK_SEPARATOR = "@@@"
+
 
 class TranslationService:
     """负责检测文章语言,并在与操作系统语言不同时翻译成系统语言。
@@ -67,6 +71,60 @@ class TranslationService:
         return "".join(translated)
 
     @staticmethod
+    def needs_translation(sample: str, target: str = None) -> bool:
+        """判断文本语言是否与目标语言不同(不同才需要翻译)。"""
+        target = target or TranslationService.get_os_language()
+        sample = (sample or '').strip()[:2000]
+        if not sample:
+            return False
+        source = TranslationService.detect_language(sample)
+        return TranslationService._short_code(source) != TranslationService._short_code(target)
+
+    @staticmethod
+    def translate_blocks(texts, target: str = None):
+        """按批翻译文本块列表,返回等长的译文列表。
+
+        多个文本块用分隔符拼接后合并翻译(减少请求数),再按分隔符切回
+        独立块,保持块序与原文一致,供图文混排视图在原文位置嵌入译文。
+
+        Args:
+            texts: 待翻译的文本块列表。
+            target: 目标语言代码,缺省时使用操作系统语言。
+
+        Returns:
+            与输入等长的译文列表;若翻译后分隔符丢失(无法切回),返回 None,
+            调用方应回退到整文翻译。网络失败等异常向上抛出。
+        """
+        from deep_translator import GoogleTranslator
+
+        target = target or TranslationService.get_os_language()
+
+        # 只翻译非空块,空块保持为空
+        non_empty = [(i, t) for i, t in enumerate(texts) if (t or '').strip()]
+
+        batches, cur, cur_len = [], [], 0
+        for i, t in non_empty:
+            if cur and cur_len + len(t) + len(BLOCK_SEPARATOR) > BLOCK_BATCH_SIZE:
+                batches.append(cur)
+                cur, cur_len = [], 0
+            cur.append((i, t))
+            cur_len += len(t) + len(BLOCK_SEPARATOR)
+        if cur:
+            batches.append(cur)
+
+        result = [""] * len(texts)
+        for batch in batches:
+            items = [t for _, t in batch]
+            joined = ("\n" + BLOCK_SEPARATOR + "\n").join(items)
+            out = GoogleTranslator(source='auto', target=target).translate(joined)
+            parts = [p.strip() for p in out.split(BLOCK_SEPARATOR)]
+            if len(parts) != len(items):
+                return None  # 分隔符被翻译吞掉,放弃块级翻译
+            for (i, _), p in zip(batch, parts):
+                result[i] = p
+        return result
+
+    @staticmethod
     def translate_article(title: str, content: str, target: str = None):
         """翻译文章标题与正文。
 
@@ -81,13 +139,8 @@ class TranslationService:
             网络失败等异常会向上抛出,由调用方展示错误。
         """
         target = target or TranslationService.get_os_language()
-        sample = (title + "\n" + (content or '')[:2000]).strip()
-        if not sample:
+        if not TranslationService.needs_translation(title + "\n" + (content or ''), target):
             return None
-
-        source = TranslationService.detect_language(sample)
-        if TranslationService._short_code(source) == TranslationService._short_code(target):
-            return None  # 与系统语言相同,无需翻译
 
         translated_title = (
             TranslationService._translate_chunked(title, target) if title else title

@@ -1,15 +1,19 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+import io
 import threading
 import webbrowser
 from datetime import datetime, timedelta
+from PIL import Image
 from services.subscription_manager import SubscriptionManager
 from services.storage_service import StorageService
 from services.feed_service import FeedService
 from services.translation_service import TranslationService
 from ui.dialogs import AddSubscriptionDialog, AboutDialog
+from ui.i18n import t
 from ui.styles import Theme, configure_styles
 from utils.date_utils import format_date
+from utils.html_utils import download_image
 
 
 class RSSReaderApp:
@@ -46,6 +50,11 @@ class RSSReaderApp:
         # Splitter drag state
         self.article_list_height = 260
         self.dragging_splitter = False
+
+        # 图片自适应缩放状态:嵌入图名 -> (文章, URL);当前显示宽度
+        self._embedded_images = {}
+        self._image_display_width = None
+        self._resize_after_id = None
         
         # Configure styles
         self.style = configure_styles()
@@ -94,7 +103,7 @@ class RSSReaderApp:
         header_frame = ttk.Frame(self.sidebar_frame)
         header_frame.pack(fill=tk.X, pady=(0, 10))
         
-        ttk.Label(header_frame, text="订阅", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
+        ttk.Label(header_frame, text=t("订阅"), font=("Arial", 12, "bold")).pack(side=tk.LEFT)
         
         # Add subscription button
         add_btn = ttk.Button(header_frame, text="+", width=2, command=self.add_subscription)
@@ -170,6 +179,10 @@ class RSSReaderApp:
             wrap=tk.WORD,
             state=tk.DISABLED
         )
+        # 图片加载失败占位提示的弱化样式
+        self.article_content_text.tag_configure("img_failed", foreground=Theme.FG_MUTED)
+        # 全文获取失败等提示的弱化样式
+        self.article_content_text.tag_configure("hint", foreground=Theme.FG_MUTED)
 
         # Scrollbar for article content
         # 注意:滚动条必须先于文本 pack,否则会被挤压成右下角的小方块
@@ -177,11 +190,14 @@ class RSSReaderApp:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.article_content_text.pack(fill=tk.BOTH, expand=True)
         self.article_content_text.configure(yscrollcommand=scrollbar.set)
+
+        # 窗口尺寸变化时自适应缩放图片
+        self.article_content_text.bind("<Configure>", self._on_content_configure)
         
         # Translate button (packed first so it sits at the far right)
         self.translate_btn = ttk.Button(
             button_frame,
-            text="翻译",
+            text=t("翻译"),
             command=self.translate_current_article,
             state=tk.DISABLED
         )
@@ -190,24 +206,24 @@ class RSSReaderApp:
         # Open in browser button
         self.open_browser_btn = ttk.Button(
             button_frame,
-            text="在浏览器中打开",
+            text=t("在浏览器中打开"),
             command=self.open_article_in_browser,
             state=tk.DISABLED
         )
         self.open_browser_btn.pack(side=tk.RIGHT, padx=(5, 0))
-        
+
         # Refresh button
         self.refresh_btn = ttk.Button(
             button_frame,
-            text="刷新订阅",
+            text=t("刷新订阅"),
             command=self.refresh_subscriptions
         )
         self.refresh_btn.pack(side=tk.RIGHT, padx=(5, 0))
-        
+
         # About button
         self.about_btn = ttk.Button(
             button_frame,
-            text="关于",
+            text=t("关于"),
             command=self.show_about
         )
         self.about_btn.pack(side=tk.RIGHT, padx=(5, 0))
@@ -252,7 +268,7 @@ class RSSReaderApp:
         self.current_subscription_id = subscription.id
         self.current_articles = []
         self.article_listbox.delete(0, tk.END)
-        self.article_listbox.insert(tk.END, "正在加载文章...")
+        self.article_listbox.insert(tk.END, t("正在加载文章..."))
 
         def worker():
             try:
@@ -282,7 +298,7 @@ class RSSReaderApp:
 
         if not articles:
             # 拉取失败或订阅暂无文章时给出明确提示
-            self.article_listbox.insert(tk.END, "加载失败或无文章，请点击「刷新订阅」重试")
+            self.article_listbox.insert(tk.END, t("加载失败或无文章，请点击「刷新订阅」重试"))
             return
 
         for article in articles:
@@ -293,7 +309,7 @@ class RSSReaderApp:
 
     def _format_article_label(self, article):
         """列表条目标签:未读不显示标记,已读显示 [已读] 前缀。"""
-        return f"{'[已读] ' if article.read else ''}{article.title}"
+        return f"{t('[已读] ') if article.read else ''}{article.title}"
 
     def _apply_article_colors(self, index, article):
         """已读文章用更灰的弱化色,未读用主文字色。"""
@@ -348,7 +364,7 @@ class RSSReaderApp:
             
             # Enable the article list and clear content
             self.viewed_article = None
-            self.translate_btn.config(state=tk.DISABLED, text="翻译")
+            self.translate_btn.config(state=tk.DISABLED, text=t("翻译"))
             self.open_browser_btn.config(state=tk.DISABLED)
             self.article_content_text.config(state=tk.NORMAL)
             self.article_content_text.delete(1.0, tk.END)
@@ -381,47 +397,199 @@ class RSSReaderApp:
             self._render_article(article)
             self.translate_btn.config(
                 state=tk.NORMAL,
-                text="已翻译" if article.translated_content else "翻译"
+                text=t("已翻译") if article.translated_content else t("翻译")
             )
             self.open_browser_btn.config(state=tk.NORMAL)
 
-            # 摘要过短时后台抓取网页全文，完成后自动刷新详情
-            self._maybe_fetch_full_text(article)
+            # 后台抓取文章网页:摘要过短则替换正文,并提取图片
+            self._maybe_fetch_full_content(article)
 
     def _render_article(self, article):
-        """把文章详情渲染到内容区域(已有译文时显示译文)。"""
+        """把文章详情渲染到内容区域(已有译文时显示译文)。
+
+        原文视图支持图文混排:短摘要文章按正文块顺序渲染段落与图片,
+        feed 自带长文则渲染原文并在文末追加图片。
+        """
         self.article_content_text.config(state=tk.NORMAL)
         self.article_content_text.delete(1.0, tk.END)
 
+        # 清空旧视图的嵌入图记录与显示宽度,重新计算
+        self._embedded_images = {}
+        self._image_display_width = None
+
         if article.translated_content:
             # Add article details (translated)
-            content = f"标题: {article.translated_title or article.title}\n\n"
-            content += f"(原标题: {article.title})\n\n"
-            content += f"链接: {article.link}\n\n"
-            content += f"发布时间: {format_date(article.pub_date)}\n\n"
-            content += f"内容(已翻译):\n{article.translated_content}"
+            content = t("标题: {title}\n\n").format(title=article.translated_title or article.title)
+            content += t("(原标题: {title})\n\n").format(title=article.title)
+            if article.author:
+                content += t("作者: {author}\n\n").format(author=article.author)
+            content += t("链接: {link}\n\n").format(link=article.link)
+            content += t("发布时间: {date}\n\n").format(date=format_date(article.pub_date))
+
+            if article.translated_block_texts:
+                # 块级译文:图文按原文位置混排
+                content += t("内容(已翻译):\n")
+                self.article_content_text.insert(tk.END, content)
+                text_iter = iter(article.translated_block_texts)
+                for block in article.blocks:
+                    if block.get('type') == 'image':
+                        self._insert_article_image(article, block['src'])
+                    else:
+                        self.article_content_text.insert(tk.END, "\n\n" + next(text_iter, ''))
+            else:
+                # 整文译文:图片追加在译文末尾
+                content += t("内容(已翻译):\n") + article.translated_content
+                self.article_content_text.insert(tk.END, content)
+                image_urls = [b['src'] for b in article.blocks if b.get('type') == 'image']
+                image_urls.extend(article.extra_image_urls)
+                for url in image_urls:
+                    self._insert_article_image(article, url)
         else:
             # Add article details (original)
-            content = f"标题: {article.title}\n\n"
-            content += f"链接: {article.link}\n\n"
-            content += f"发布时间: {format_date(article.pub_date)}\n\n"
-            content += f"内容:\n{article.content}"
+            header = t("标题: {title}\n\n").format(title=article.title)
+            if article.author:
+                header += t("作者: {author}\n\n").format(author=article.author)
+            header += t("链接: {link}\n\n").format(link=article.link)
+            header += t("发布时间: {date}\n\n").format(date=format_date(article.pub_date))
+            header += t("内容:\n")
+            self.article_content_text.insert(tk.END, header)
 
-        self.article_content_text.insert(tk.END, content)
+            if article.full_text_failed and len(article.content) < 300:
+                self.article_content_text.insert(
+                    tk.END, t("⚠ 全文获取失败,以下为摘要(重新选中本文会自动重试)\n\n"), ("hint",)
+                )
+
+            if article.blocks:
+                # 图文块按文档顺序渲染
+                for block in article.blocks:
+                    if block.get('type') == 'image':
+                        self._insert_article_image(article, block['src'])
+                    else:
+                        self.article_content_text.insert(tk.END, "\n\n" + block['text'])
+            else:
+                self.article_content_text.insert(tk.END, article.content)
+                # feed 自带长文:网页图片追加在文末
+                if article.photos is not None:
+                    for url in article.extra_image_urls:
+                        self._insert_article_image(article, url)
+
         self.article_content_text.config(state=tk.DISABLED)
 
+    def _render_article_keep_scroll(self, article):
+        """重新渲染文章视图,并保持当前滚动位置。
+
+        用于译文替换、全文到达、图片就绪等"原地更新"场景,
+        避免视图重建导致滚动位置跳回文章开头。
+        """
+        try:
+            frac = self.article_content_text.yview()[0]
+        except tk.TclError:
+            frac = 0.0
+        self._render_article(article)
+        self.article_content_text.yview_moveto(max(0.0, min(1.0, frac)))
+
+    def _insert_article_image(self, article, url):
+        """在内容区插入一张图片(按当前可视宽度缩放)。
+
+        未下载完成时先留空,失败时显示占位提示。
+        """
+        self.article_content_text.insert(tk.END, "\n")
+
+        if url in (article.pil_images or {}):
+            if self._image_display_width is None:
+                self._image_display_width = self._display_image_width()
+            photo = self._make_photo(article, url, self._image_display_width)
+            if photo:
+                name = self.article_content_text.image_create(tk.END, image=photo)
+                self._embedded_images[name] = (article, url)
+        elif article.photos is not None:
+            self.article_content_text.insert(tk.END, t("[图片加载失败]"), ("img_failed",))
+
+        self.article_content_text.insert(tk.END, "\n")
+
+    def _display_image_width(self):
+        """当前内容区的可视宽度(图片显示宽度按它计算)。"""
+        w = self.article_content_text.winfo_width()
+        if not w or w < 100:
+            return 700  # 布局尚未完成时的兜底宽度
+        return max(100, w - 10)
+
+    def _make_photo(self, article, url, width):
+        """把原始 PIL 图片按显示宽度等比缩放为 PhotoImage 并缓存。"""
+        pil = article.pil_images.get(url)
+        if pil is None:
+            return None
+        if pil.width > width:
+            ratio = width / pil.width
+            img = pil.resize((width, max(1, int(pil.height * ratio))), Image.LANCZOS)
+        else:
+            img = pil
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        photo = tk.PhotoImage(data=buf.getvalue())
+        article.photos[url] = photo
+        return photo
+
+    def _on_content_configure(self, event):
+        """内容区尺寸变化时防抖,稍后按新宽度重排图片。"""
+        if self._resize_after_id:
+            self.root.after_cancel(self._resize_after_id)
+        self._resize_after_id = self.root.after(200, self._refit_images)
+
+    def _refit_images(self):
+        """按当前可视宽度重新缩放所有已嵌入图片(原位替换,不打断滚动)。"""
+        self._resize_after_id = None
+        if not self._embedded_images:
+            return
+        width = self._display_image_width()
+        if width == self._image_display_width:
+            return
+        for name, (article, url) in self._embedded_images.items():
+            try:
+                photo = self._make_photo(article, url, width)
+                if photo:
+                    self.article_content_text.image_configure(name, image=photo)
+            except Exception as e:
+                print(f"Error refitting image {url}: {e}")
+        self._image_display_width = width
+
     def translate_current_article(self):
-        """把当前文章翻译成操作系统语言(语言相同则提示无需翻译)。"""
+        """把当前文章翻译成操作系统语言(语言相同则提示无需翻译)。
+
+        优先块级翻译(逐块译文,图片保持在原文位置);分隔符丢失等
+        情况下回退到整文翻译(图片追加文末)。
+        """
         article = self.viewed_article
         if not article:
             return
 
-        self.translate_btn.config(state=tk.DISABLED, text="翻译中...")
+        self.translate_btn.config(state=tk.DISABLED, text=t("翻译中..."))
         target = TranslationService.get_os_language()
 
         def worker():
             try:
-                return TranslationService.translate_article(article.title, article.content, target)
+                sample = article.title + "\n" + (article.content or '')
+                if not TranslationService.needs_translation(sample, target):
+                    return None  # 与系统语言相同,无需翻译
+
+                # 块级翻译:保持图文位置
+                if article.blocks:
+                    texts = [
+                        b.get('text', '') for b in article.blocks if b.get('type') == 'text'
+                    ]
+                    translated_texts = TranslationService.translate_blocks(texts, target)
+                    if translated_texts is not None:
+                        translated_title = TranslationService.translate_blocks(
+                            [article.title], target
+                        )
+                        title = translated_title[0] if translated_title else article.title
+                        return (title, "\n\n".join(translated_texts), translated_texts)
+
+                # 回退:整文翻译
+                result = TranslationService.translate_article(article.title, article.content, target)
+                if result is None:
+                    return None
+                return (result[0], result[1], None)
             except Exception as e:
                 print(f"Error translating article: {e}")
                 return e  # 用异常对象作为失败标记
@@ -429,45 +597,134 @@ class RSSReaderApp:
         def on_done(result):
             self.translate_btn.config(state=tk.NORMAL)
             if isinstance(result, Exception):
-                self.translate_btn.config(text="翻译")
-                messagebox.showerror("翻译失败", f"翻译时出错: {result}")
+                self.translate_btn.config(text=t("翻译"))
+                messagebox.showerror(t("翻译失败"), t("翻译时出错: {error}").format(error=result))
                 return
             if result is None:
-                self.translate_btn.config(text="翻译")
-                messagebox.showinfo("翻译", f"文章语言与系统语言({target})相同，无需翻译")
+                self.translate_btn.config(text=t("翻译"))
+                messagebox.showinfo(
+                    t("翻译"),
+                    t("文章语言与系统语言({target})相同，无需翻译").format(target=target),
+                )
                 return
-            article.translated_title, article.translated_content = result
-            self.translate_btn.config(text="已翻译")
+            article.translated_title, article.translated_content, article.translated_block_texts = result
+            self.translate_btn.config(text=t("已翻译"))
             if self.viewed_article is article:
-                self._render_article(article)
+                self._render_article_keep_scroll(article)
 
         self._run_in_background(worker, on_done)
 
-    def _maybe_fetch_full_text(self, article):
-        """当 RSS 摘要过短时，后台抓取网页全文补全详情。"""
-        if not article.link or len(article.content) >= 300:
-            return
-        if getattr(article, 'full_text_fetched', False):
+    MAX_ARTICLE_IMAGES = 12  # 每篇文章最多下载的图片数
+
+    def _maybe_fetch_full_content(self, article):
+        """打开文章时后台抓取原网页。
+
+        网页正文比当前内容更长时替换(覆盖短摘要与中长摘要),并按图文块渲染;
+        feed 自带全文更长时保留原文,网页图片追加在文末;
+        抓取失败时不标记完成,下次选中该文章会重试。
+        """
+        if not article.link or getattr(article, 'page_fetched', False):
             return
 
         def worker():
             try:
-                return FeedService.fetch_full_text(article.link)
+                return FeedService.fetch_full_content(article.link)
             except Exception as e:
-                print(f"Error fetching full text: {e}")
-                return ""
+                print(f"Error fetching article page: {e}")
+                return "", [], {}
 
-        def on_done(text):
-            article.full_text_fetched = True
-            if text:
+        def on_done(result):
+            text, blocks, meta = result
+
+            if not text and not blocks:
+                # 抓取失败:标记失败并保留重试机会
+                article.full_text_failed = True
+                if self.viewed_article is article:
+                    self._render_article_keep_scroll(article)
+                return
+
+            article.page_fetched = True
+            article.full_text_failed = False
+
+            # 用提取算法产出的元数据补全 RSS 缺失的作者/日期/标题
+            if meta.get('author'):
+                article.author = article.author or meta['author']
+            if meta.get('date'):
+                article.pub_date = article.pub_date or meta['date']
+            if meta.get('title') and not article.title:
+                article.title = meta['title']
+            if meta.get('html'):
+                article.clean_html = meta['html']
+
+            should_replace = text and (
+                # 摘要级内容(<500 字):网页正文更长就替换
+                (len(article.content) < 500 and len(text) > len(article.content))
+                # 中长内容:网页正文显著更长(1.5 倍以上)才替换,避免覆盖 feed 自带全文
+                or len(text) > len(article.content) * 1.5
+            )
+            if should_replace:
+                # 网页正文替换,并按图文块渲染
                 article.content = text
+                article.blocks = blocks
                 # 原文已更新,基于旧摘要的译文作废
                 article.translated_title = ""
                 article.translated_content = ""
-                # 只有用户仍停留在该文章时才刷新视图
-                if self.viewed_article is article:
-                    self._render_article(article)
-                    self.translate_btn.config(text="翻译")
+                article.translated_block_texts = None
+            else:
+                # feed 自带全文:保留原文,文末仅追加题图。
+                # 容器内嵌图可能混入其它文章的推广图(如 newsletter 页的
+                # 相关故事配图),因此不追加。
+                article.blocks = []
+                if meta.get('image'):
+                    article.extra_image_urls = [meta['image']]
+                else:
+                    article.extra_image_urls = [
+                        b['src'] for b in blocks if b.get('type') == 'image'
+                    ]
+            self._download_article_images(article)
+            # 只有用户仍停留在该文章时才刷新视图
+            if self.viewed_article is article:
+                self._render_article_keep_scroll(article)
+                self.translate_btn.config(text=t("翻译"))
+
+        self._run_in_background(worker, on_done)
+
+    def _download_article_images(self, article):
+        """后台下载文章图片,主线程解码为 PhotoImage 后刷新视图。"""
+        urls = [b['src'] for b in article.blocks if b.get('type') == 'image']
+        urls.extend(article.extra_image_urls)
+
+        # 去重并限量
+        seen, unique = set(), []
+        for u in urls:
+            if u not in seen:
+                seen.add(u)
+                unique.append(u)
+        unique = unique[:self.MAX_ARTICLE_IMAGES]
+        if not unique:
+            return
+
+        def worker():
+            return [(u, download_image(u)) for u in unique]
+
+        def on_done(pairs):
+            article.photos = {}
+            article.pil_images = {}
+            for url, data in pairs:
+                if not data:
+                    continue
+                try:
+                    img = Image.open(io.BytesIO(data))
+                    img.load()
+                    # 原始图过宽时先压到 2000px 以内,节省内存
+                    if img.width > 2000:
+                        ratio = 2000 / img.width
+                        img = img.resize((2000, max(1, int(img.height * ratio))), Image.LANCZOS)
+                    article.pil_images[url] = img
+                except Exception as e:
+                    print(f"Error decoding image {url}: {e}")
+            if self.viewed_article is article:
+                self._render_article_keep_scroll(article)
 
         self._run_in_background(worker, on_done)
     
@@ -499,11 +756,13 @@ class RSSReaderApp:
 
                 return True
             else:
-                messagebox.showerror("错误", f"无法添加订阅: {message}")
+                messagebox.showerror(
+                    t("错误"), t("无法添加订阅: {message}").format(message=message)
+                )
                 return False
 
         except Exception as e:
-            messagebox.showerror("错误", f"添加订阅时出错: {str(e)}")
+            messagebox.showerror(t("错误"), t("添加订阅时出错: {error}").format(error=str(e)))
             return False
     
     def open_article_in_browser(self):
@@ -518,7 +777,7 @@ class RSSReaderApp:
                 try:
                     webbrowser.open(article.link)
                 except Exception as e:
-                    messagebox.showerror("错误", f"无法打开链接: {str(e)}")
+                    messagebox.showerror(t("错误"), t("无法打开链接: {error}").format(error=str(e)))
     
     def refresh_subscriptions(self):
         """刷新所有订阅。"""
@@ -540,9 +799,9 @@ class RSSReaderApp:
                     self.subscription_manager.subscriptions[current_index]
                 )
 
-            messagebox.showinfo("成功", "订阅刷新完成")
+            messagebox.showinfo(t("成功"), t("订阅刷新完成"))
         except Exception as e:
-            messagebox.showerror("错误", f"刷新订阅时出错: {str(e)}")
+            messagebox.showerror(t("错误"), t("刷新订阅时出错: {error}").format(error=str(e)))
     
     def show_about(self):
         """显示关于对话框。"""

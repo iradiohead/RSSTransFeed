@@ -3,3 +3,5 @@ beautifulsoup4==4.12.3
 requests==2.31.0
 deep-translator==1.11.4
 langdetect==1.0.9
+pillow==12.3.0
+trafilatura==2.2.0
