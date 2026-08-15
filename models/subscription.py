@@ -100,6 +100,8 @@ class Article:
         self.photos = None
         # 原始 PIL 图片缓存(URL -> PIL.Image),用于按窗口宽度自适应缩放
         self.pil_images = {}
+        # 图片下载状态(URL -> downloading/done/failed),用于渐进渲染与失败占位
+        self.image_states = {}
         # 正文提取算法产出的干净正文 HTML(会话内有效)
         self.clean_html = ""
         # 网页全文抓取是否失败过(失败时详情页显示摘要提示,下次选中会重试)

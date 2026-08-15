@@ -10,12 +10,13 @@ class Theme:
     保证界面风格一致。
     """
     
-    # Colors - Dark blue-gray theme (照搬参考图配色)
+     # Colors - Dark blue-gray theme (照搬参考图配色)
     BG_PRIMARY = "#151C23"
     BG_SECONDARY = "#171D24"
     BG_SIDEBAR = "#151C23"
     BG_SPLIT = "#151C23"
     BG_SPLITTER = "#2D343B"
+    BG_SPLITTER_HIGHLIGHT = "#4A5568"
     BG_LISTBOX = "#171D24"
     BG_ARTICLE = "#151C23"
     BG_FOOTER = "#151C23"

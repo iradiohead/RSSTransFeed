@@ -1,7 +1,9 @@
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, messagebox
 import io
 import threading
+import time
 import webbrowser
 from datetime import datetime, timedelta
 from PIL import Image
@@ -12,6 +14,7 @@ from services.translation_service import TranslationService
 from ui.dialogs import AddSubscriptionDialog, AboutDialog
 from ui.i18n import t
 from ui.styles import Theme, configure_styles
+from ui.widgets import RoundedSplitter
 from utils.date_utils import format_date
 from utils.html_utils import download_image
 
@@ -50,6 +53,8 @@ class RSSReaderApp:
         # Splitter drag state
         self.article_list_height = 260
         self.dragging_splitter = False
+        self.sidebar_width = 250
+        self.dragging_sidebar = False
 
         # 图片自适应缩放状态:嵌入图名 -> (文章, URL);当前显示宽度
         self._embedded_images = {}
@@ -83,10 +88,20 @@ class RSSReaderApp:
         self.splitter_frame.pack(fill=tk.BOTH, expand=True)
         
         # Left sidebar (subscriptions)
-        self.sidebar_frame = ttk.Frame(self.splitter_frame, width=250)
-        self.sidebar_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
+        self.sidebar_frame = ttk.Frame(self.splitter_frame, width=self.sidebar_width)
+        self.sidebar_frame.pack(side=tk.LEFT, fill=tk.Y)
         self.sidebar_frame.pack_propagate(False)  # Prevent frame from shrinking
-        
+
+        # Sidebar splitter (vertical, draggable, rounded caps)
+        self.sidebar_splitter = RoundedSplitter(
+            self.splitter_frame, orient="vertical", width=8,
+            cursor="sb_h_double_arrow"
+        )
+        self.sidebar_splitter.pack(side=tk.LEFT, fill=tk.Y)
+        self.sidebar_splitter.bind("<Button-1>", self.start_sidebar_drag)
+        self.sidebar_splitter.bind("<B1-Motion>", self.on_sidebar_drag)
+        self.sidebar_splitter.bind("<ButtonRelease-1>", self.stop_sidebar_drag)
+
         # Right content area
         self.content_frame = ttk.Frame(self.splitter_frame)
         self.content_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
@@ -151,10 +166,12 @@ class RSSReaderApp:
         # Bind selection event
         self.article_listbox.bind('<<ListboxSelect>>', self.on_article_selected)
 
-        # Splitter between article list and content (draggable)
-        self.splitter = tk.Frame(self.content_frame, height=6, bg=Theme.BG_SPLITTER)
-        self.splitter.pack(side=tk.TOP, fill=tk.X)
-        self.splitter.configure(cursor="sb_v_double_arrow")
+        # Splitter between article list and content (draggable, rounded caps)
+        self.splitter = RoundedSplitter(
+            self.content_frame, orient="horizontal", height=8,
+            cursor="sb_v_double_arrow"
+        )
+        self.splitter.pack(side=tk.TOP, fill=tk.X, padx=0, pady=0)
         self.splitter.bind("<Button-1>", self.start_split_drag)
         self.splitter.bind("<B1-Motion>", self.on_split_drag)
         self.splitter.bind("<ButtonRelease-1>", self.stop_split_drag)
@@ -167,29 +184,48 @@ class RSSReaderApp:
         # Bottom frame for article content
         bottom_frame = ttk.Frame(self.content_frame)
         bottom_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(5, 0))
-        
-        # Article content text widget
+
+        # Scrollbar for article content (packed before the text container)
+        scrollbar = ttk.Scrollbar(
+            bottom_frame, orient=tk.VERTICAL,
+            command=lambda *args: self.article_content_text.yview(*args)
+        )
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Article content text widget (居中阅读列,宽度上限 680px)
+        self.text_wrapper = ttk.Frame(bottom_frame)
+        self.text_wrapper.pack(fill=tk.BOTH, expand=True)
+        self.text_wrapper.bind("<Configure>", self._layout_article_text)
+
         self.article_content_text = tk.Text(
-            bottom_frame,
+            self.text_wrapper,
             bg=Theme.BG_ARTICLE,
             fg=Theme.FG_PRIMARY,
-            font=("Arial", 10),
             borderwidth=0,
             highlightthickness=0,
             wrap=tk.WORD,
-            state=tk.DISABLED
+            state=tk.DISABLED,
+            padx=10,
+            pady=8,
         )
+
+        # 参考 .article 样式:Georgia 20px、行高 1.4、字间距 0(默认)
+        # 注意:Font 对象必须持有引用,否则被 GC 后底层 Tk 字体随之删除;
+        # 负值 size 表示像素单位,size=-20 即 CSS 的 font-size: 20px
+        self.article_font = tkfont.Font(family="Georgia", size=-20)
+        # 总行高 = ARTICLE_LINE_HEIGHT × 20px(Tk 行距只能加不能减)
+        line_extra = round(20 * self.ARTICLE_LINE_HEIGHT - self.article_font.metrics("linespace"))
+        line_extra = max(0, min(24, line_extra))
+        self.article_content_text.configure(
+            font=self.article_font,
+            spacing3=line_extra,
+            yscrollcommand=scrollbar.set,
+        )
+
         # 图片加载失败占位提示的弱化样式
         self.article_content_text.tag_configure("img_failed", foreground=Theme.FG_MUTED)
         # 全文获取失败等提示的弱化样式
         self.article_content_text.tag_configure("hint", foreground=Theme.FG_MUTED)
-
-        # Scrollbar for article content
-        # 注意:滚动条必须先于文本 pack,否则会被挤压成右下角的小方块
-        scrollbar = ttk.Scrollbar(bottom_frame, orient=tk.VERTICAL, command=self.article_content_text.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.article_content_text.pack(fill=tk.BOTH, expand=True)
-        self.article_content_text.configure(yscrollcommand=scrollbar.set)
 
         # 窗口尺寸变化时自适应缩放图片
         self.article_content_text.bind("<Configure>", self._on_content_configure)
@@ -354,6 +390,26 @@ class RSSReaderApp:
         """结束分割线拖拽。"""
         self.dragging_splitter = False
 
+    def start_sidebar_drag(self, event):
+        """开始拖拽侧边栏分隔条。"""
+        self.dragging_sidebar = True
+        self.drag_start_x = event.x_root
+        self.drag_start_width = self.sidebar_width
+
+    def on_sidebar_drag(self, event):
+        """处理侧边栏分隔条拖拽,动态调整侧边栏宽度。"""
+        if not self.dragging_sidebar:
+            return
+
+        delta = event.x_root - self.drag_start_x
+        new_width = max(150, min(450, self.drag_start_width + delta))
+        self.sidebar_width = int(new_width)
+        self.sidebar_frame.configure(width=self.sidebar_width)
+
+    def stop_sidebar_drag(self, event):
+        """结束侧边栏分隔条拖拽。"""
+        self.dragging_sidebar = False
+
     def on_subscription_selected(self, event):
         """处理订阅选择事件。"""
         selection = self.subscription_listbox.curselection()
@@ -502,10 +558,22 @@ class RSSReaderApp:
             if photo:
                 name = self.article_content_text.image_create(tk.END, image=photo)
                 self._embedded_images[name] = (article, url)
-        elif article.photos is not None:
+        elif (article.image_states or {}).get(url) == 'failed':
             self.article_content_text.insert(tk.END, t("[图片加载失败]"), ("img_failed",))
 
         self.article_content_text.insert(tk.END, "\n")
+
+    ARTICLE_MAX_WIDTH = 680  # 正文阅读列最大宽度(参考 .article max-width: 680px)
+    ARTICLE_LINE_HEIGHT = 1.6  # 正文行高倍数(1.4 偏紧,取 1.6 更舒适)
+
+    def _layout_article_text(self, event=None):
+        """把正文阅读列居中,宽度不超过 ARTICLE_MAX_WIDTH。"""
+        w = self.text_wrapper.winfo_width()
+        h = self.text_wrapper.winfo_height()
+        if w <= 1 or h <= 1:
+            return
+        width = min(self.ARTICLE_MAX_WIDTH, w)
+        self.article_content_text.place(relx=0.5, y=0, width=width, height=h, anchor='n')
 
     def _display_image_width(self):
         """当前内容区的可视宽度(图片显示宽度按它计算)。"""
@@ -690,7 +758,7 @@ class RSSReaderApp:
         self._run_in_background(worker, on_done)
 
     def _download_article_images(self, article):
-        """后台下载文章图片,主线程解码为 PhotoImage 后刷新视图。"""
+        """并行下载文章图片,每张完成即渐进刷新视图,失败自动重试一次。"""
         urls = [b['src'] for b in article.blocks if b.get('type') == 'image']
         urls.extend(article.extra_image_urls)
 
@@ -704,29 +772,48 @@ class RSSReaderApp:
         if not unique:
             return
 
-        def worker():
-            return [(u, download_image(u)) for u in unique]
+        article.photos = {}
+        article.pil_images = {}
+        article.image_states = {u: 'downloading' for u in unique}
 
-        def on_done(pairs):
-            article.photos = {}
-            article.pil_images = {}
-            for url, data in pairs:
-                if not data:
-                    continue
-                try:
-                    img = Image.open(io.BytesIO(data))
-                    img.load()
-                    # 原始图过宽时先压到 2000px 以内,节省内存
-                    if img.width > 2000:
-                        ratio = 2000 / img.width
-                        img = img.resize((2000, max(1, int(img.height * ratio))), Image.LANCZOS)
-                    article.pil_images[url] = img
-                except Exception as e:
-                    print(f"Error decoding image {url}: {e}")
-            if self.viewed_article is article:
-                self._render_article_keep_scroll(article)
+        # 每张图片独立线程并行下载,互不阻塞
+        for url in unique:
+            self._run_in_background(
+                lambda u=url: self._download_image_with_retry(u),
+                lambda pair, a=article: self._on_image_downloaded(a, pair),
+            )
 
-        self._run_in_background(worker, on_done)
+    @staticmethod
+    def _download_image_with_retry(url, delay=1.0):
+        """下载图片,失败时短暂等待后重试一次。"""
+        data = download_image(url)
+        if data is None:
+            time.sleep(delay)
+            data = download_image(url)
+        return url, data
+
+    def _on_image_downloaded(self, article, pair):
+        """单张图片下载完成:解码缓存,并渐进刷新视图。"""
+        url, data = pair
+        if data:
+            try:
+                img = Image.open(io.BytesIO(data))
+                img.load()
+                # 原始图过宽时先压到 2000px 以内,节省内存
+                if img.width > 2000:
+                    ratio = 2000 / img.width
+                    img = img.resize((2000, max(1, int(img.height * ratio))), Image.LANCZOS)
+                article.pil_images[url] = img
+                article.image_states[url] = 'done'
+            except Exception as e:
+                print(f"Error decoding image {url}: {e}")
+                article.image_states[url] = 'failed'
+        else:
+            article.image_states[url] = 'failed'
+
+        # 渐进显示:当前文章正在查看时,每张图片就绪立即出现
+        if self.viewed_article is article:
+            self._render_article_keep_scroll(article)
     
     def add_subscription(self):
         """添加新订阅。"""

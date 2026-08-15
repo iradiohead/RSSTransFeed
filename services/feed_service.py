@@ -75,12 +75,16 @@ class FeedService:
             return ""
         return extract_article_text(html, url)
 
+    # 直连被反爬拦截时的渲染代理(设为空字符串可禁用;内容会经过该服务)
+    READER_PROXY = "https://r.jina.ai/"
+
     @staticmethod
     def fetch_full_content(url: str):
         """抓取文章原网页,返回 (纯文本, 正文块, 元数据)。
 
         使用正文提取算法(Content Extraction / Boilerplate Removal)过滤
         导航栏、推荐、广告、评论、分享按钮、页脚等噪音内容。
+        直连被反爬拦截时(如 Cloudflare JS 挑战),回退到渲染代理抓取正文。
 
         Args:
             url: 文章原始 URL。
@@ -93,7 +97,7 @@ class FeedService:
 
         html = fetch_article_html(url)
         if not html:
-            return "", [], {}
+            return FeedService._fetch_full_content_via_proxy(url)
         result = extract_article_content(html, url)
         return result["text"], result["blocks"], {
             "title": result["title"],
@@ -102,6 +106,49 @@ class FeedService:
             "html": result["html"],
             "image": result["image"],
         }
+
+    @staticmethod
+    def _fetch_full_content_via_proxy(url: str):
+        """通过渲染代理获取被反爬拦截页面的正文(Markdown)。"""
+        import requests as _requests
+
+        if not FeedService.READER_PROXY:
+            return "", [], {}
+        try:
+            resp = _requests.get(FeedService.READER_PROXY + url, timeout=30)
+            resp.raise_for_status()
+            markdown = resp.text.strip()
+            if len(markdown) < 200:
+                return "", [], {}
+            title, text = FeedService._parse_reader_markdown(markdown)
+            blocks = [
+                {"type": "text", "text": p}
+                for p in text.split("\n\n")
+                if len(p.strip()) > 12
+            ]
+            if not blocks:
+                return "", [], {}
+            return text, blocks, {
+                "title": title, "author": "", "date": "", "html": "", "image": ""
+            }
+        except Exception as e:
+            print(f"Reader proxy fetch failed for {url}: {e}")
+            return "", [], {}
+
+    @staticmethod
+    def _parse_reader_markdown(markdown: str):
+        """解析渲染代理返回的 Markdown:标题 + 正文。"""
+        lines = markdown.split("\n")
+        title = ""
+        content_start = 0
+        for i, line in enumerate(lines):
+            if line.startswith("Title: "):
+                title = line[len("Title: "):].strip()
+            if line.strip() == "Markdown Content:":
+                content_start = i + 1
+                break
+        text = "\n".join(lines[content_start:]).strip()
+        return title, text
 
     @staticmethod
     def parse_articles(feed: dict, feed_title: str = "") -> List[Article]:
