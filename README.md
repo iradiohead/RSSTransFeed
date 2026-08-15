@@ -1,6 +1,6 @@
 # RSSTransFeed - 模块化架构
 
-一个原生风格的 macOS RSS 阅读器，使用 Python 和 Tkinter 构建。
+一个原生风格的 macOS RSS 阅读器，具备自动翻译功能，使用 Python 和 Tkinter 构建。
 
 ## 项目结构
 
@@ -73,6 +73,7 @@ python main.py
 - ✅ 刷新订阅（获取最新文章）
 - ✅ 可拖拽调整文章列表和内容区域高度
 - ✅ 深色主题 UI
+- ✅ 自动翻译文章内容（支持多种语言）
 
 ## 技术栈
 
