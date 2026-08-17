@@ -19,8 +19,8 @@ _EN = {
     "百度翻译密钥": "Baidu Translate Secret Key",
     "保存": "Save",
     "百度翻译设置已保存": "Baidu Translate settings saved",
-    "密钥保存在当前 Windows 用户设置中。": (
-        "Credentials are stored in the current Windows user settings."
+    "密钥保存在当前操作系统用户设置中。": (
+        "Credentials are stored in the current OS user settings."
     ),
     "刷新": "Refresh",
     "刷新完成": "Refresh completed",

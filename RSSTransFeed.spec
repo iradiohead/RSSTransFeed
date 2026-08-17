@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller definition for the standalone Windows distribution."""
+"""PyInstaller definition for standalone Windows and macOS distributions."""
+
+import sys
 
 from PyInstaller.utils.hooks import collect_all, copy_metadata
 
@@ -69,3 +71,15 @@ coll = COLLECT(
     upx_exclude=[],
     name="RSSTransFeed",
 )
+
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="RSSTransFeed.app",
+        icon=None,
+        bundle_identifier="com.rss.transfeed",
+        info_plist={
+            "NSHighResolutionCapable": True,
+            "NSRequiresAquaSystemAppearance": False,
+        },
+    )

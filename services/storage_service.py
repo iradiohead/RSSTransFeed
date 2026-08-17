@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import threading
 import uuid
 from collections.abc import Iterable
@@ -13,13 +14,26 @@ from pathlib import Path
 from models import Subscription
 
 
+def default_data_root() -> Path:
+    """Return the operating system's standard per-user application-data root."""
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / "Library" / "Application Support"
+    if os.name == "nt":
+        return Path(os.environ.get("APPDATA", home / "AppData" / "Roaming"))
+    return Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share"))
+
+
 class StorageService:
     """Store application data in a writable per-user directory."""
 
     def __init__(self, data_dir: str | Path | None = None):
         """Create the data directory and initialize the two JSON file paths."""
-        root = Path(os.environ.get("APPDATA", Path.home() / ".local" / "share"))
-        self.data_dir = Path(data_dir) if data_dir else root / "RSSTransFeed"
+        self.data_dir = (
+            Path(data_dir)
+            if data_dir
+            else default_data_root() / "RSSTransFeed"
+        )
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.subscriptions_path = self.data_dir / "subscriptions.json"
         self.read_path = self.data_dir / "read_articles.json"

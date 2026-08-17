@@ -15,6 +15,7 @@ from services import (
     TranslationService,
     translate_article_with_fallback,
 )
+from services.storage_service import default_data_root
 from ui.main_window import MainWindow
 from utils.article_extractor import extract_article_content, strip_html
 
@@ -25,6 +26,15 @@ def test_storage_round_trip(tmp_path):
     storage.save_read_articles({"article": "2026-08-17T10:00:00"})
     assert storage.load_read_articles() == {"article": "2026-08-17T10:00:00"}
     assert json.loads(storage.read_path.read_text(encoding="utf-8"))["article"]
+
+
+def test_macos_data_root_uses_application_support(monkeypatch):
+    """macOS data should live under the user's Application Support directory."""
+    monkeypatch.setattr("services.storage_service.sys.platform", "darwin")
+    assert default_data_root().parts[-2:] == (
+        "Library",
+        "Application Support",
+    )
 
 
 def test_malformed_subscription_shape_falls_back_to_empty(tmp_path):

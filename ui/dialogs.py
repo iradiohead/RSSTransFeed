@@ -58,7 +58,7 @@ class AddSubscriptionDialog(QDialog):
 
 
 class TranslationSettingsDialog(QDialog):
-    """Edit Baidu Translate credentials stored for the current Windows user."""
+    """Edit Baidu Translate credentials stored for the current OS user."""
 
     def __init__(self, settings: QSettings, parent=None):
         """Build credential fields populated from the application settings."""
@@ -80,7 +80,7 @@ class TranslationSettingsDialog(QDialog):
         form.addRow(t("百度翻译 APP ID"), self.app_id_edit)
         form.addRow(t("百度翻译密钥"), self.secret_edit)
 
-        note = QLabel(t("密钥保存在当前 Windows 用户设置中。"))
+        note = QLabel(t("密钥保存在当前操作系统用户设置中。"))
         note.setWordWrap(True)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save
