@@ -1,0 +1,162 @@
+graph LR
+    subgraph python ["python"]
+        python_main["main"]
+        python_models["models"]
+        python_services_baidu_translation_service["services.baidu_translation_service"]
+        python_services_feed_service["services.feed_service"]
+        python_services_read_state["services.read_state"]
+        python_services_storage_service["services.storage_service"]
+        python_services_subscription_manager["services.subscription_manager"]
+        python_services_translation_service["services.translation_service"]
+        python_services___init__["services.__init__"]
+        python_test_services["test_services"]
+        python_ui_article_browser["ui.article_browser"]
+        python_ui_dialogs["ui.dialogs"]
+        python_ui_i18n["ui.i18n"]
+        python_ui_main_window["ui.main_window"]
+        python_ui_theme["ui.theme"]
+        python_ui_workers["ui.workers"]
+        python_ui___init__["ui.__init__"]
+        python_utils_article_extractor["utils.article_extractor"]
+        python_utils___init__["utils.__init__"]
+        python___future__["__future__"]
+        python_sys["sys"]
+        python_pathlib["pathlib"]
+        python_PySide6_QtGui["PySide6.QtGui"]
+        python_PySide6_QtWidgets["PySide6.QtWidgets"]
+        python_services["services"]
+        python_dataclasses["dataclasses"]
+        python_datetime["datetime"]
+        python_urllib_parse["urllib.parse"]
+        python_feedparser["feedparser"]
+        python_requests["requests"]
+        python_json["json"]
+        python_os["os"]
+        python_shutil["shutil"]
+        python_threading["threading"]
+        python_uuid["uuid"]
+        python_collections_abc["collections.abc"]
+        python_locale["locale"]
+        python_re["re"]
+        python_langdetect["langdetect"]
+        python_argostranslate_translate["argostranslate.translate"]
+        python_argostranslate_package["argostranslate.package"]
+        python_ctypes["ctypes"]
+        python_types["types"]
+        python_html["html"]
+        python_PySide6_QtCore["PySide6.QtCore"]
+        python_webbrowser["webbrowser"]
+        python_langdetect_lang_detect_exception["langdetect.lang_detect_exception"]
+        python_traceback["traceback"]
+        python_trafilatura["trafilatura"]
+        python_bs4["bs4"]
+        python_hashlib["hashlib"]
+        python_secrets["secrets"]
+        python_typing["typing"]
+        python_main --> python___future__
+        python_main --> python_sys
+        python_main --> python_pathlib
+        python_main --> python_PySide6_QtGui
+        python_main --> python_PySide6_QtWidgets
+        python_main --> python_services
+        python_main --> python_ui_main_window
+        python_main --> python_ui_theme
+        python_models --> python___future__
+        python_models --> python_dataclasses
+        python_models --> python_datetime
+        python_services_baidu_translation_service --> python___future__
+        python_services_baidu_translation_service --> python_hashlib
+        python_services_baidu_translation_service --> python_secrets
+        python_services_baidu_translation_service --> python_requests
+        python_services_baidu_translation_service --> python_models
+        python_services_baidu_translation_service --> python_services_translation_service
+        python_services_feed_service --> python___future__
+        python_services_feed_service --> python_urllib_parse
+        python_services_feed_service --> python_feedparser
+        python_services_feed_service --> python_requests
+        python_services_feed_service --> python_models
+        python_services_feed_service --> python_utils_article_extractor
+        python_services_read_state --> python___future__
+        python_services_read_state --> python_datetime
+        python_services_read_state --> python_models
+        python_services_read_state --> python_services_storage_service
+        python_services_storage_service --> python___future__
+        python_services_storage_service --> python_json
+        python_services_storage_service --> python_os
+        python_services_storage_service --> python_shutil
+        python_services_storage_service --> python_threading
+        python_services_storage_service --> python_uuid
+        python_services_storage_service --> python_collections_abc
+        python_services_storage_service --> python_pathlib
+        python_services_storage_service --> python_models
+        python_services_subscription_manager --> python___future__
+        python_services_subscription_manager --> python_threading
+        python_services_subscription_manager --> python_datetime
+        python_services_subscription_manager --> python_requests
+        python_services_subscription_manager --> python_models
+        python_services_subscription_manager --> python_services_feed_service
+        python_services_subscription_manager --> python_services_storage_service
+        python_services_translation_service --> python___future__
+        python_services_translation_service --> python_locale
+        python_services_translation_service --> python_os
+        python_services_translation_service --> python_re
+        python_services_translation_service --> python_threading
+        python_services_translation_service --> python_models
+        python_services_translation_service --> python_langdetect
+        python_services_translation_service --> python_argostranslate_translate
+        python_services_translation_service --> python_argostranslate_package
+        python_services_translation_service --> python_ctypes
+        python_services___init__ --> python_services_baidu_translation_service
+        python_services___init__ --> python_services_feed_service
+        python_services___init__ --> python_services_read_state
+        python_services___init__ --> python_services_storage_service
+        python_services___init__ --> python_services_subscription_manager
+        python_services___init__ --> python_services_translation_service
+        python_test_services --> python_hashlib
+        python_test_services --> python_json
+        python_test_services --> python_requests
+        python_test_services --> python_types
+        python_test_services --> python_models
+        python_test_services --> python_services
+        python_test_services --> python_utils_article_extractor
+        python_ui_article_browser --> python___future__
+        python_ui_article_browser --> python_html
+        python_ui_article_browser --> python_datetime
+        python_ui_article_browser --> python_PySide6_QtCore
+        python_ui_article_browser --> python_PySide6_QtGui
+        python_ui_article_browser --> python_PySide6_QtWidgets
+        python_ui_article_browser --> python_models
+        python_ui_article_browser --> python_ui_i18n
+        python_ui_article_browser --> python_ui_theme
+        python_ui_dialogs --> python_PySide6_QtCore
+        python_ui_dialogs --> python_PySide6_QtWidgets
+        python_ui_dialogs --> python_services_baidu_translation_service
+        python_ui_dialogs --> python_ui_i18n
+        python_ui_i18n --> python_services
+        python_ui_main_window --> python___future__
+        python_ui_main_window --> python_webbrowser
+        python_ui_main_window --> python_collections_abc
+        python_ui_main_window --> python_langdetect_lang_detect_exception
+        python_ui_main_window --> python_PySide6_QtCore
+        python_ui_main_window --> python_PySide6_QtGui
+        python_ui_main_window --> python_PySide6_QtWidgets
+        python_ui_main_window --> python_models
+        python_ui_main_window --> python_services
+        python_ui_main_window --> python_services_baidu_translation_service
+        python_ui_main_window --> python_ui_article_browser
+        python_ui_main_window --> python_ui_dialogs
+        python_ui_main_window --> python_ui_i18n
+        python_ui_main_window --> python_ui_theme
+        python_ui_main_window --> python_ui_workers
+        python_ui_workers --> python___future__
+        python_ui_workers --> python_traceback
+        python_ui_workers --> python_collections_abc
+        python_ui_workers --> python_PySide6_QtCore
+        python_utils_article_extractor --> python___future__
+        python_utils_article_extractor --> python_re
+        python_utils_article_extractor --> python_typing
+        python_utils_article_extractor --> python_urllib_parse
+        python_utils_article_extractor --> python_trafilatura
+        python_utils_article_extractor --> python_bs4
+        python_utils_article_extractor --> python_models
+    end

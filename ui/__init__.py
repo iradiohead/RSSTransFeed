@@ -1,1 +1,1 @@
-"""UI components for RSS Reader"""
+"""PySide6 user interface package."""

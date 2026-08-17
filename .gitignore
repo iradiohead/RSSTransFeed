@@ -1,36 +1,17 @@
-# Python cache files
 __pycache__/
 *.py[cod]
-*.pyo
-
-# Virtual environments
 .venv/
+.venv-build/
 venv/
-env/
-
-# Test / tooling caches
 .pytest_cache/
-.mypy_cache/
 .ruff_cache/
-
-# Build output
+.mypy_cache/
 build/
 dist/
-RSSTransFeed.spec
 *.spec
-*.spec.user
-
-# macOS system files
-.DS_Store
-
-# Editor / local config
-.vscode/
+!RSSTransFeed.spec
 .idea/
-
-# Local environment files
-.python-version
-*.log
-
-# Optional: local config or secrets
+.vscode/
 .env
 .env.*
+*.log

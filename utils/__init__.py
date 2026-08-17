@@ -1,1 +1,1 @@
-"""Utility functions for RSS Reader"""
+"""Pure helper functions shared by the service layer."""

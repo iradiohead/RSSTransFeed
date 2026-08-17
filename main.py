@@ -1,31 +1,37 @@
 #!/usr/bin/env python3
-"""
-RSSTransFeed Desktop Application
-A native-style RSS reader for macOS built with Python and Tkinter
+"""RSSTransFeed PySide6 entry point."""
 
-Entry point for the application.
-"""
+from __future__ import annotations
 
-import tkinter as tk
 import sys
-import os
+from pathlib import Path
 
-# Add current directory to path so imports work
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QApplication
 
-from ui.app import RSSReaderApp
+from services import StorageService
+from ui.main_window import MainWindow
+from ui.theme import STYLESHEET
 
 
-def main():
-    """启动主窗口并进入 Tkinter 事件循环。
+def main() -> int:
+    """Configure QApplication, migrate legacy data, and run the main window."""
+    app = QApplication(sys.argv)
+    app.setApplicationName("RSSTransFeed")
+    app.setOrganizationName("RSSTransFeed")
+    app.setStyle("Fusion")
+    app.setFont(QFont("Segoe UI", 10))
+    app.setStyleSheet(STYLESHEET)
 
-    这是程序的入口函数。它创建应用主窗口，实例化 RSS 阅读器界面，
-    然后让 Tkinter 持续监听用户事件，直到窗口关闭。
-    """
-    root = tk.Tk()
-    app = RSSReaderApp(root)
-    root.mainloop()
+    storage = StorageService()
+    project_root = Path(__file__).resolve().parent
+    storage.migrate_legacy(Path(sys.executable).resolve().parent)
+    storage.migrate_legacy(project_root.parent / "RSSTransFeed")
+
+    window = MainWindow(storage)
+    window.show()
+    return app.exec()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

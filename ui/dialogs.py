@@ -1,81 +1,118 @@
-"""Dialog windows for RSS Reader"""
-import tkinter as tk
-from tkinter import ttk, messagebox
+"""Application dialogs."""
 
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QVBoxLayout,
+)
+
+from services.baidu_translation_service import BAIDU_APP_ID_KEY, BAIDU_SECRET_KEY
 from ui.i18n import t
 
 
-class AddSubscriptionDialog:
-    """用于新增订阅的弹窗。
+class AddSubscriptionDialog(QDialog):
+    """Modal dialog that validates and returns one RSS URL."""
 
-    这个对话框让用户输入 RSS 地址，并在确认后把地址交给回调函数处理。
-    """
+    def __init__(self, parent=None):
+        """Build the URL field and localized confirmation buttons."""
+        super().__init__(parent)
+        self.setWindowTitle(t("添加订阅"))
+        self.setMinimumWidth(460)
+        self.url_edit = QLineEdit()
+        self.url_edit.setPlaceholderText("https://example.com/feed.xml")
+        self.url_edit.setClearButtonEnabled(True)
 
-    def __init__(self, parent, on_add_callback=None):
-        """初始化订阅添加窗口。
-
-        Args:
-            parent: 父窗口，用于挂载对话框。
-            on_add_callback: 用户确认时调用的回调函数，通常负责校验和保存订阅。
-        """
-        self.parent = parent
-        self.on_add_callback = on_add_callback
-        self.result = None
-        self.create_dialog()
-
-    def create_dialog(self):
-        """构造弹窗界面，并绑定添加/取消逻辑。"""
-        dialog = tk.Toplevel(self.parent)
-        dialog.title(t("添加订阅"))
-        dialog.geometry("400x150")
-        dialog.transient(self.parent)
-        dialog.grab_set()
-
-        # Center the dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
-
-        # URL input
-        ttk.Label(dialog, text=t("RSS 地址:")).pack(pady=(10, 5))
-        url_entry = ttk.Entry(dialog, width=50)
-        url_entry.pack(pady=5)
-        url_entry.focus()
-
-        # Buttons frame
-        button_frame = ttk.Frame(dialog)
-        button_frame.pack(pady=10)
-
-        def handle_add():
-            """处理用户点击“添加”的事件。"""
-            url = url_entry.get().strip()
-            if not url:
-                messagebox.showerror(t("错误"), t("请输入 RSS 地址"))
-                return
-
-            if self.on_add_callback:
-                result = self.on_add_callback(url)
-                if result:
-                    dialog.destroy()
-
-        ttk.Button(button_frame, text=t("取消"), command=dialog.destroy).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(button_frame, text=t("添加"), command=handle_add).pack(side=tk.LEFT)
-
-        self.dialog = dialog
-
-
-class AboutDialog:
-    """显示软件介绍窗口。"""
-
-    @staticmethod
-    def show(parent):
-        """弹出关于窗口，展示应用名称和基础说明。"""
-        messagebox.showinfo(
-            t("关于 RSSTransFeed"),
-            t(
-                "RSSTransFeed Desktop Application\n\n"
-                "一个原生风格的 macOS RSS 阅读器\n"
-                "使用 Python 和 Tkinter 构建"
-            ),
+        form = QFormLayout()
+        form.addRow(t("RSS 地址"), self.url_edit)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
         )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(t("添加"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(t("取消"))
+        buttons.accepted.connect(self._accept_if_valid)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+        self.url_edit.returnPressed.connect(self._accept_if_valid)
+        self.url_edit.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    @property
+    def url(self) -> str:
+        """Return the normalized URL currently entered by the user."""
+        return self.url_edit.text().strip()
+
+    def _accept_if_valid(self) -> None:
+        """Accept only HTTP(S) URLs and keep the dialog open on invalid input."""
+        if not self.url.startswith(("http://", "https://")):
+            QMessageBox.warning(self, t("错误"), t("请输入有效的 RSS 地址。"))
+            return
+        self.accept()
+
+
+class TranslationSettingsDialog(QDialog):
+    """Edit Baidu Translate credentials stored for the current Windows user."""
+
+    def __init__(self, settings: QSettings, parent=None):
+        """Build credential fields populated from the application settings."""
+        super().__init__(parent)
+        self.settings = settings
+        self.setWindowTitle(t("翻译设置"))
+        self.setMinimumWidth(500)
+
+        self.app_id_edit = QLineEdit(
+            str(settings.value(BAIDU_APP_ID_KEY, "") or "")
+        )
+        self.secret_edit = QLineEdit(
+            str(settings.value(BAIDU_SECRET_KEY, "") or "")
+        )
+        self.secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.secret_edit.setClearButtonEnabled(True)
+
+        form = QFormLayout()
+        form.addRow(t("百度翻译 APP ID"), self.app_id_edit)
+        form.addRow(t("百度翻译密钥"), self.secret_edit)
+
+        note = QLabel(t("密钥保存在当前 Windows 用户设置中。"))
+        note.setWordWrap(True)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText(t("保存"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(t("取消"))
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(note)
+        layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        """Persist trimmed credentials and close the settings dialog."""
+        self.settings.setValue(BAIDU_APP_ID_KEY, self.app_id_edit.text().strip())
+        self.settings.setValue(
+            BAIDU_SECRET_KEY,
+            self.secret_edit.text().strip(),
+        )
+        self.settings.sync()
+        super().accept()
+
+
+def show_about(parent=None) -> None:
+    """Display application identity and its main capabilities."""
+    QMessageBox.about(
+        parent,
+        "RSSTransFeed",
+        "<h3>RSSTransFeed</h3>"
+        "<p>PySide6 RSS reader with full-text extraction and translation.</p>"
+        "<p>RSS 阅读、全文提取、图文混排与自动翻译。</p>",
+    )

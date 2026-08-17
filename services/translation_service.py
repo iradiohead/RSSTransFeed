@@ -1,151 +1,184 @@
-"""Service for detecting article language and translating into the OS language"""
+"""Offline language detection and Argos translation."""
+
+from __future__ import annotations
+
 import locale
 import os
+import re
+import threading
 
-# Google 网页翻译单次请求的文本长度上限附近,留出余量
-CHUNK_SIZE = 4500
-
-# 块级翻译的批量上限与分隔符(翻译后按分隔符切回独立块)
-BLOCK_BATCH_SIZE = 4000
-BLOCK_SEPARATOR = "@@@"
+from models import Article, TranslationResult
 
 
 class TranslationService:
-    """负责检测文章语言,并在与操作系统语言不同时翻译成系统语言。
+    """Detect article language and translate locally to the system language."""
 
-    语言检测使用 langdetect(纯 Python,基于 Google 语料);
-    翻译使用 deep-translator 的 Google 网页翻译(source='auto' 自动识别),
-    无需 API key,需要联网。长文本自动分块翻译。
-    """
+    _lock = threading.Lock()
 
-    @staticmethod
-    def get_os_language() -> str:
-        """返回操作系统界面语言代码(翻译目标),例如 'zh-CN'。
+    class _Sentencizer:
+        """Split text locally so Argos never downloads an external tokenizer."""
 
-        macOS/Linux 从 locale 读取;读取失败时回退环境变量,再不行默认 'en'。
-        """
-        try:
-            lang, _ = locale.getdefaultlocale()
-        except Exception:
-            lang = None
-        if not lang:
-            lang = os.environ.get('LANG', '')
-        if not lang:
-            return 'en'
-        # 'zh_CN' -> 'zh-CN';'en_US.UTF-8' -> 'en-US'(去掉编码后缀)
-        if '_' in lang:
-            base, region = lang.split('_', 1)
-            region = region.split('.')[0]
-            return f"{base.lower()}-{region.upper()}"
-        return lang.lower()
+        @staticmethod
+        def split_sentences(text: str) -> list[str]:
+            """Split sentences at common western and CJK punctuation."""
+            return [
+                part
+                for part in re.split(r"(?<=[.!?。！？])\s+", text)
+                if part.strip()
+            ]
 
     @staticmethod
-    def detect_language(text: str) -> str:
-        """检测文本语言代码(如 'en'、'zh-cn'、'ja')。"""
+    def os_language() -> str:
+        """Return the operating-system UI locale as a standard language tag."""
+        if os.name == "nt":
+            import ctypes
+
+            value = ctypes.create_unicode_buffer(85)
+            if ctypes.windll.kernel32.GetUserDefaultLocaleName(value, len(value)):
+                return value.value
+        language = locale.getlocale()[0] or os.environ.get("LANG", "en")
+        return language.split(".", 1)[0].replace("_", "-") or "en"
+
+    @staticmethod
+    def short_code(language: str) -> str:
+        """Normalize a locale such as zh-CN or en_US to an Argos language code."""
+        return (language or "").replace("_", "-").split("-", 1)[0].lower()
+
+    @classmethod
+    def detect_language(cls, text: str) -> str:
+        """Detect the dominant language from a bounded local text sample."""
         from langdetect import detect
-        sample = (text or '').strip()[:2000]
-        return detect(sample) if sample else ''
 
-    @staticmethod
-    def _short_code(lang: str) -> str:
-        """'zh-CN' -> 'zh','en_US' -> 'en'。判断是否同一语言用。"""
-        return (lang or '').split('-')[0].split('_')[0].lower()
+        sample = (text or "").strip()[:2000]
+        return cls.short_code(detect(sample)) if sample else ""
 
-    @staticmethod
-    def _translate_chunked(text: str, target: str) -> str:
-        """把长文本分块翻译后拼接,避免单次请求超长。"""
-        from deep_translator import GoogleTranslator
+    @classmethod
+    def needs_translation(cls, text: str, target: str | None = None) -> bool:
+        """Return whether text language differs from the target system language."""
+        return bool(text.strip()) and cls.detect_language(text) != cls.short_code(
+            target or cls.os_language()
+        )
 
-        chunks = [
-            text[i:i + CHUNK_SIZE]
-            for i in range(0, len(text), CHUNK_SIZE)
-        ]
-        translated = []
-        for chunk in chunks:
-            if not chunk.strip():
-                translated.append(chunk)
-                continue
-            translated.append(
-                GoogleTranslator(source='auto', target=target).translate(chunk)
-            )
-        return "".join(translated)
+    @classmethod
+    def _installed_translator(cls, source: str, target: str):
+        """Return an installed Argos translator, or None when its model is absent."""
+        import argostranslate.translate
 
-    @staticmethod
-    def needs_translation(sample: str, target: str = None) -> bool:
-        """判断文本语言是否与目标语言不同(不同才需要翻译)。"""
-        target = target or TranslationService.get_os_language()
-        sample = (sample or '').strip()[:2000]
-        if not sample:
-            return False
-        source = TranslationService.detect_language(sample)
-        return TranslationService._short_code(source) != TranslationService._short_code(target)
-
-    @staticmethod
-    def translate_blocks(texts, target: str = None):
-        """按批翻译文本块列表,返回等长的译文列表。
-
-        多个文本块用分隔符拼接后合并翻译(减少请求数),再按分隔符切回
-        独立块,保持块序与原文一致,供图文混排视图在原文位置嵌入译文。
-
-        Args:
-            texts: 待翻译的文本块列表。
-            target: 目标语言代码,缺省时使用操作系统语言。
-
-        Returns:
-            与输入等长的译文列表;若翻译后分隔符丢失(无法切回),返回 None,
-            调用方应回退到整文翻译。网络失败等异常向上抛出。
-        """
-        from deep_translator import GoogleTranslator
-
-        target = target or TranslationService.get_os_language()
-
-        # 只翻译非空块,空块保持为空
-        non_empty = [(i, t) for i, t in enumerate(texts) if (t or '').strip()]
-
-        batches, cur, cur_len = [], [], 0
-        for i, t in non_empty:
-            if cur and cur_len + len(t) + len(BLOCK_SEPARATOR) > BLOCK_BATCH_SIZE:
-                batches.append(cur)
-                cur, cur_len = [], 0
-            cur.append((i, t))
-            cur_len += len(t) + len(BLOCK_SEPARATOR)
-        if cur:
-            batches.append(cur)
-
-        result = [""] * len(texts)
-        for batch in batches:
-            items = [t for _, t in batch]
-            joined = ("\n" + BLOCK_SEPARATOR + "\n").join(items)
-            out = GoogleTranslator(source='auto', target=target).translate(joined)
-            parts = [p.strip() for p in out.split(BLOCK_SEPARATOR)]
-            if len(parts) != len(items):
-                return None  # 分隔符被翻译吞掉,放弃块级翻译
-            for (i, _), p in zip(batch, parts):
-                result[i] = p
-        return result
-
-    @staticmethod
-    def translate_article(title: str, content: str, target: str = None):
-        """翻译文章标题与正文。
-
-        Args:
-            title: 文章标题。
-            content: 文章正文。
-            target: 目标语言代码,缺省时使用操作系统语言。
-
-        Returns:
-            文章语言与目标语言相同时返回 None(无需翻译);
-            否则返回 (翻译后标题, 翻译后正文) 元组;
-            网络失败等异常会向上抛出,由调用方展示错误。
-        """
-        target = target or TranslationService.get_os_language()
-        if not TranslationService.needs_translation(title + "\n" + (content or ''), target):
+        languages = {
+            language.code: language
+            for language in argostranslate.translate.get_installed_languages()
+        }
+        if source not in languages or target not in languages:
+            return None
+        try:
+            translator = languages[source].get_translation(languages[target])
+            cls._use_local_sentencizer(translator)
+            return translator
+        except (AttributeError, RuntimeError, ValueError):
             return None
 
-        translated_title = (
-            TranslationService._translate_chunked(title, target) if title else title
+    @classmethod
+    def _use_local_sentencizer(cls, translator) -> None:
+        """Replace Argos tokenizers recursively with the local sentence splitter."""
+        if hasattr(translator, "sentencizer"):
+            translator.sentencizer = cls._Sentencizer()
+        for name in ("underlying", "t1", "t2"):
+            child = getattr(translator, name, None)
+            if child is not None:
+                cls._use_local_sentencizer(child)
+
+    @classmethod
+    def _get_translator(cls, source: str, target: str):
+        """Load a local model, downloading direct or English-pivot models once."""
+        translator = cls._installed_translator(source, target)
+        if translator:
+            return translator
+
+        import argostranslate.package
+
+        argostranslate.package.update_package_index()
+        packages = argostranslate.package.get_available_packages()
+        direct = any(
+            item.from_code == source and item.to_code == target for item in packages
         )
-        translated_content = (
-            TranslationService._translate_chunked(content, target) if content else content
+        pairs = cls._translation_pairs(source, target, direct)
+        for from_code, to_code in pairs:
+            if cls._installed_translator(from_code, to_code):
+                continue
+            package = next(
+                (
+                    item
+                    for item in packages
+                    if item.from_code == from_code and item.to_code == to_code
+                ),
+                None,
+            )
+            if package is None:
+                raise RuntimeError(
+                    f"No local Argos model is available for {from_code} → {to_code}"
+                )
+            argostranslate.package.install_from_path(package.download())
+
+        translator = cls._installed_translator(source, target)
+        if translator is None:
+            raise RuntimeError(f"Cannot load local model: {source} → {target}")
+        return translator
+
+    @staticmethod
+    def _translation_pairs(
+        source: str, target: str, direct_available: bool
+    ) -> list[tuple[str, str]]:
+        """Choose a direct model or the minimal set of English-pivot models."""
+        if direct_available:
+            return [(source, target)]
+        return [
+            pair
+            for pair in ((source, "en"), ("en", target))
+            if pair[0] != pair[1]
+        ]
+
+    @staticmethod
+    def _translate_text(text: str, translator) -> str:
+        """Translate text in bounded paragraphs to avoid model token limits."""
+        return "\n\n".join(
+            TranslationService._translate_paragraph(paragraph, translator)
+            for paragraph in text.split("\n\n")
         )
-        return translated_title, translated_content
+
+    @staticmethod
+    def _translate_paragraph(paragraph: str, translator) -> str:
+        """Translate one paragraph in chunks small enough for Argos models."""
+        if not paragraph.strip():
+            return paragraph
+        return "".join(
+            translator.translate(paragraph[index : index + 500])
+            for index in range(0, len(paragraph), 500)
+        )
+
+    @classmethod
+    def translate_article(
+        cls, article: Article, target: str | None = None
+    ) -> TranslationResult | None:
+        """Translate an article and preserve text-block positions around images."""
+        target_code = cls.short_code(target or cls.os_language())
+        source_code = cls.detect_language(f"{article.title}\n{article.content}")
+        if not source_code or source_code == target_code:
+            return None
+
+        with cls._lock:
+            translator = cls._get_translator(source_code, target_code)
+            texts = [
+                block["text"]
+                for block in article.blocks
+                if block.get("type") == "text"
+            ]
+            translated_blocks = [
+                cls._translate_text(text, translator) for text in texts
+            ]
+            title = cls._translate_text(article.title, translator)
+            content = (
+                "\n\n".join(translated_blocks)
+                if texts
+                else cls._translate_text(article.content, translator)
+            )
+            return title, content, translated_blocks if texts else None

@@ -1,0 +1,160 @@
+graph LR
+    main["main"]
+    models["models"]
+    services_baidu_translation_service["services.baidu_translation_service"]
+    services_feed_service["services.feed_service"]
+    services_read_state["services.read_state"]
+    services_storage_service["services.storage_service"]
+    services_subscription_manager["services.subscription_manager"]
+    services_translation_service["services.translation_service"]
+    services___init__["services.__init__"]
+    test_services["test_services"]
+    ui_article_browser["ui.article_browser"]
+    ui_dialogs["ui.dialogs"]
+    ui_i18n["ui.i18n"]
+    ui_main_window["ui.main_window"]
+    ui_theme["ui.theme"]
+    ui_workers["ui.workers"]
+    ui___init__["ui.__init__"]
+    utils_article_extractor["utils.article_extractor"]
+    utils___init__["utils.__init__"]
+    __future__["__future__"]
+    sys["sys"]
+    pathlib["pathlib"]
+    PySide6_QtGui["PySide6.QtGui"]
+    PySide6_QtWidgets["PySide6.QtWidgets"]
+    services["services"]
+    dataclasses["dataclasses"]
+    datetime["datetime"]
+    urllib_parse["urllib.parse"]
+    feedparser["feedparser"]
+    requests["requests"]
+    json["json"]
+    os["os"]
+    shutil["shutil"]
+    threading["threading"]
+    uuid["uuid"]
+    collections_abc["collections.abc"]
+    locale["locale"]
+    re["re"]
+    langdetect["langdetect"]
+    argostranslate_translate["argostranslate.translate"]
+    argostranslate_package["argostranslate.package"]
+    ctypes["ctypes"]
+    types["types"]
+    html["html"]
+    PySide6_QtCore["PySide6.QtCore"]
+    webbrowser["webbrowser"]
+    langdetect_lang_detect_exception["langdetect.lang_detect_exception"]
+    traceback["traceback"]
+    trafilatura["trafilatura"]
+    bs4["bs4"]
+    hashlib["hashlib"]
+    secrets["secrets"]
+    typing["typing"]
+    main --> __future__
+    main --> sys
+    main --> pathlib
+    main --> PySide6_QtGui
+    main --> PySide6_QtWidgets
+    main --> services
+    main --> ui_main_window
+    main --> ui_theme
+    models --> __future__
+    models --> dataclasses
+    models --> datetime
+    services_baidu_translation_service --> __future__
+    services_baidu_translation_service --> hashlib
+    services_baidu_translation_service --> secrets
+    services_baidu_translation_service --> requests
+    services_baidu_translation_service --> models
+    services_baidu_translation_service --> services_translation_service
+    services_feed_service --> __future__
+    services_feed_service --> urllib_parse
+    services_feed_service --> feedparser
+    services_feed_service --> requests
+    services_feed_service --> models
+    services_feed_service --> utils_article_extractor
+    services_read_state --> __future__
+    services_read_state --> datetime
+    services_read_state --> models
+    services_read_state --> services_storage_service
+    services_storage_service --> __future__
+    services_storage_service --> json
+    services_storage_service --> os
+    services_storage_service --> shutil
+    services_storage_service --> threading
+    services_storage_service --> uuid
+    services_storage_service --> collections_abc
+    services_storage_service --> pathlib
+    services_storage_service --> models
+    services_subscription_manager --> __future__
+    services_subscription_manager --> threading
+    services_subscription_manager --> datetime
+    services_subscription_manager --> requests
+    services_subscription_manager --> models
+    services_subscription_manager --> services_feed_service
+    services_subscription_manager --> services_storage_service
+    services_translation_service --> __future__
+    services_translation_service --> locale
+    services_translation_service --> os
+    services_translation_service --> re
+    services_translation_service --> threading
+    services_translation_service --> models
+    services_translation_service --> langdetect
+    services_translation_service --> argostranslate_translate
+    services_translation_service --> argostranslate_package
+    services_translation_service --> ctypes
+    services___init__ --> services_baidu_translation_service
+    services___init__ --> services_feed_service
+    services___init__ --> services_read_state
+    services___init__ --> services_storage_service
+    services___init__ --> services_subscription_manager
+    services___init__ --> services_translation_service
+    test_services --> hashlib
+    test_services --> json
+    test_services --> requests
+    test_services --> types
+    test_services --> models
+    test_services --> services
+    test_services --> utils_article_extractor
+    ui_article_browser --> __future__
+    ui_article_browser --> html
+    ui_article_browser --> datetime
+    ui_article_browser --> PySide6_QtCore
+    ui_article_browser --> PySide6_QtGui
+    ui_article_browser --> PySide6_QtWidgets
+    ui_article_browser --> models
+    ui_article_browser --> ui_i18n
+    ui_article_browser --> ui_theme
+    ui_dialogs --> PySide6_QtCore
+    ui_dialogs --> PySide6_QtWidgets
+    ui_dialogs --> services_baidu_translation_service
+    ui_dialogs --> ui_i18n
+    ui_i18n --> services
+    ui_main_window --> __future__
+    ui_main_window --> webbrowser
+    ui_main_window --> collections_abc
+    ui_main_window --> langdetect_lang_detect_exception
+    ui_main_window --> PySide6_QtCore
+    ui_main_window --> PySide6_QtGui
+    ui_main_window --> PySide6_QtWidgets
+    ui_main_window --> models
+    ui_main_window --> services
+    ui_main_window --> services_baidu_translation_service
+    ui_main_window --> ui_article_browser
+    ui_main_window --> ui_dialogs
+    ui_main_window --> ui_i18n
+    ui_main_window --> ui_theme
+    ui_main_window --> ui_workers
+    ui_workers --> __future__
+    ui_workers --> traceback
+    ui_workers --> collections_abc
+    ui_workers --> PySide6_QtCore
+    utils_article_extractor --> __future__
+    utils_article_extractor --> re
+    utils_article_extractor --> typing
+    utils_article_extractor --> urllib_parse
+    utils_article_extractor --> trafilatura
+    utils_article_extractor --> bs4
+    utils_article_extractor --> models

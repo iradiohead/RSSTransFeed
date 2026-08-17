@@ -1,150 +1,88 @@
-import os
-import sys
+"""Atomic JSON persistence for subscriptions and read-state data."""
+
+from __future__ import annotations
+
 import json
-import time
-from datetime import datetime
+import os
+import shutil
+import threading
+import uuid
+from collections.abc import Iterable
 from pathlib import Path
 
+from models import Subscription
+
+
 class StorageService:
-    def __init__(self, filename="subscriptions.json", storage_dir=None):
-        """初始化存储服务。
+    """Store application data in a writable per-user directory."""
 
-        Args:
-            filename: 订阅数据文件名。
-            storage_dir: 数据目录。缺省时自动解析:打包运行时取可执行文件所在
-                目录,源码运行时取项目根目录(与当前工作目录无关)。
-        """
-        self.filename = filename
-        self.storage_dir = storage_dir if storage_dir is not None else self._resolve_base_dir()
-        self.storage_path = os.path.join(self.storage_dir, filename)
-        self._ensure_storage_dir_exists()
+    def __init__(self, data_dir: str | Path | None = None):
+        """Create the data directory and initialize the two JSON file paths."""
+        root = Path(os.environ.get("APPDATA", Path.home() / ".local" / "share"))
+        self.data_dir = Path(data_dir) if data_dir else root / "RSSTransFeed"
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.subscriptions_path = self.data_dir / "subscriptions.json"
+        self.read_path = self.data_dir / "read_articles.json"
+        self._lock = threading.RLock()
 
-    def _resolve_base_dir(self) -> str:
-        """返回可写的应用数据目录,兼容打包运行和源码运行两种方式。"""
-        if getattr(sys, 'frozen', False):
-            return os.path.dirname(sys.executable)
-        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    def migrate_legacy(self, legacy_dir: str | Path) -> None:
+        """Copy legacy JSON files only when the new data files do not exist."""
+        source_dir = Path(legacy_dir)
+        for name, destination in (
+            ("subscriptions.json", self.subscriptions_path),
+            ("read_articles.json", self.read_path),
+        ):
+            source = source_dir / name
+            if destination.exists() or not source.exists():
+                continue
+            try:
+                shutil.copy2(source, destination)
+            except OSError:
+                continue
 
-    def get_storage_path(self) -> str:
-        """返回订阅数据文件的绝对路径。"""
-        return self.storage_path
-
-    def _ensure_storage_dir_exists(self):
-        """Ensure the storage directory exists"""
-        os.makedirs(self.storage_dir, exist_ok=True)
-    
-    def save_file(self, uploaded_file):
-        """Save an uploaded file to the storage directory"""
-        # Create a unique filename to prevent overwrites
-        file_extension = Path(uploaded_file.name).suffix
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        unique_filename = f"{timestamp}_{uploaded_file.name}"
-        
-        # Full path for the file
-        file_path = os.path.join(self.storage_dir, unique_filename)
-        
-        # Save the file
-        with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        
-        return file_path
-    
-    def list_files(self):
-        """List all files in the storage directory"""
-        files = []
+    @staticmethod
+    def _read_json(path: Path, default):
+        """Read JSON and return a safe default for missing or malformed files."""
         try:
-            for filename in os.listdir(self.storage_dir):
-                file_path = os.path.join(self.storage_dir, filename)
-                if os.path.isfile(file_path):
-                    stat = os.stat(file_path)
-                    files.append({
-                        "name": filename,
-                        "size": stat.st_size,
-                        "upload_time": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                    })
-        except Exception as e:
-            raise Exception(f"Error listing files: {str(e)}")
-        
-        # Sort by upload time (newest first)
-        files.sort(key=lambda x: x["upload_time"], reverse=True)
-        return files
-    
-    def load_subscriptions(self):
-        """Load subscriptions from the subscriptions.json file.
-        
-        Returns:
-            List of Subscription objects
-        """
-        subscriptions_file = self.storage_path
+            with path.open("r", encoding="utf-8") as stream:
+                return json.load(stream)
+        except (OSError, json.JSONDecodeError):
+            return default
 
-        if not os.path.exists(subscriptions_file):
-            # Create default subscriptions file if it doesn't exist
-            self.save_subscriptions([])
+    def _write_json(self, path: Path, value) -> None:
+        """Write JSON atomically so interruption cannot corrupt the live file."""
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        with self._lock:
+            try:
+                with temporary.open("w", encoding="utf-8") as stream:
+                    json.dump(value, stream, ensure_ascii=False, indent=2)
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+    def load_subscriptions(self) -> list[Subscription]:
+        """Deserialize valid subscription objects and ignore malformed entries."""
+        value = self._read_json(self.subscriptions_path, [])
+        if not isinstance(value, list):
             return []
+        return [
+            Subscription.from_dict(item)
+            for item in value
+            if isinstance(item, dict)
+        ]
 
-        try:
-            with open(subscriptions_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            from models.subscription import Subscription
-            subscriptions = [Subscription.from_dict(item) for item in data]
-            return subscriptions
-        except Exception as e:
-            print(f"Error loading subscriptions: {e}")
-            return []
-    
-    def save_subscriptions(self, subscriptions):
-        """Save subscriptions to the subscriptions.json file.
+    def save_subscriptions(self, subscriptions: Iterable[Subscription]) -> None:
+        """Persist the current subscription collection."""
+        self._write_json(
+            self.subscriptions_path,
+            [subscription.to_dict() for subscription in subscriptions],
+        )
 
-        Args:
-            subscriptions: List of Subscription objects
+    def load_read_articles(self) -> dict[str, str]:
+        """Load stable article keys mapped to ISO read timestamps."""
+        value = self._read_json(self.read_path, {})
+        return value if isinstance(value, dict) else {}
 
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        subscriptions_file = self.storage_path
-
-        try:
-            # Convert subscriptions to dict format
-            data = [sub.to_dict() for sub in subscriptions]
-
-            with open(subscriptions_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-
-            return True
-        except Exception as e:
-            print(f"Error saving subscriptions: {e}")
-
-    def load_read_articles(self):
-        """从 read_articles.json 读取已读文章标识。
-
-        Returns:
-            dict: 文章稳定标识 -> 阅读时间(ISO 字符串)；文件不存在或损坏时返回空字典。
-        """
-        path = os.path.join(self.storage_dir, "read_articles.json")
-        if not os.path.exists(path):
-            return {}
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Error loading read articles: {e}")
-            return {}
-
-    def save_read_articles(self, read_articles: dict) -> bool:
-        """把已读文章标识写回 read_articles.json。
-
-        Args:
-            read_articles: 文章稳定标识 -> 阅读时间的字典。
-
-        Returns:
-            bool: 是否保存成功。
-        """
-        path = os.path.join(self.storage_dir, "read_articles.json")
-        try:
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(read_articles, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            print(f"Error saving read articles: {e}")
-            return False
+    def save_read_articles(self, value: dict[str, str]) -> None:
+        """Persist stable article keys mapped to ISO read timestamps."""
+        self._write_json(self.read_path, value)
